@@ -173,6 +173,7 @@
     <div id="memberList"></div>
     <div class="sidebar-bottom">
       <button class="btn" style="justify-content:center;" onclick="openBalanceEditor()">Capital congés ⚙</button>
+      <button class="btn" style="justify-content:center;" onclick="openMembersEditor()">Gérer l'équipe 👥</button>
       <button class="btn" style="justify-content:center;position:relative;" id="pendingBtn" onclick="showPendingView()" style="display:none;">
         Demandes en attente <span class="pending-count" id="pendingCount">0</span>
       </button>
@@ -218,7 +219,8 @@ const FIREBASE_CONFIG = {
 const ADMIN_PASSWORD = "admin1234"; // À changer !
 const WEB3FORMS_KEY = "c5c8ebae-e233-4e85-8a25-34f856a526ec";
 const NOTIFY_EMAIL = "michel.noel@csambleve.be";
-const MEMBERS = ["Audrey","Florence","Jean-Michel","Jennifer","Jessica","Mélissa","Valentine","Doris"];
+const DEFAULT_MEMBERS = ["Michel","Audrey","Florence","Jean-Michel","Jennifer","Jessica","Mélissa","Valentine","Doris"];
+let MEMBERS = [...DEFAULT_MEMBERS];
 const MONTHS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const DAYS_FR = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
 
@@ -239,6 +241,7 @@ if(FIREBASE_IS_CONFIGURED){
     db=firebase.database();
     db.ref("events").on("value",snap=>{ events=snap.val()||{}; renderAll(); });
     db.ref("leaveBalances").on("value",snap=>{ leaveBalances=snap.val()||{}; renderAll(); });
+    db.ref("members").on("value",snap=>{ const v=snap.val(); if(v&&Array.isArray(v)&&v.length) MEMBERS=v; renderAll(); });
     isFirebaseOk=true;
   } catch(e){ isFirebaseOk=false; loadLocal(); }
 } else {
@@ -247,10 +250,19 @@ if(FIREBASE_IS_CONFIGURED){
 }
 
 function loadLocal(){
-  try{ events=JSON.parse(localStorage.getItem("csa_ev")||"{}"); leaveBalances=JSON.parse(localStorage.getItem("csa_bal")||"{}"); }catch(e){}
+  try{
+    events=JSON.parse(localStorage.getItem("csa_ev")||"{}");
+    leaveBalances=JSON.parse(localStorage.getItem("csa_bal")||"{}");
+    const storedMembers=JSON.parse(localStorage.getItem("csa_members")||"null");
+    if(storedMembers && Array.isArray(storedMembers) && storedMembers.length) MEMBERS=storedMembers;
+  }catch(e){}
   renderAll();
 }
 function saveLocal(){ localStorage.setItem("csa_ev",JSON.stringify(events)); localStorage.setItem("csa_bal",JSON.stringify(leaveBalances)); }
+function saveMembersList(){
+  if(isFirebaseOk) db.ref("members").set(MEMBERS);
+  else localStorage.setItem("csa_members",JSON.stringify(MEMBERS));
+}
 
 function saveEvent(ev){
   if(isFirebaseOk){ if(ev.id) db.ref("events/"+ev.id).set(ev); else{ const r=db.ref("events").push(); ev.id=r.key; r.set(ev); } }
@@ -719,6 +731,48 @@ function openBalanceEditor(){
   document.getElementById("modalFooter").innerHTML=`<button class="btn" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveAllBalances()">Enregistrer</button>`;
   document.getElementById("eventModal").style.display="flex";
 }
+function openMembersEditor(){
+  if(!isAdmin){ showAdminLogin(openMembersEditor); return; }
+  document.getElementById("modalTitle").textContent="Gérer l'équipe";
+  let body=`<div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Ajoute ou retire des membres de l'équipe Accueil. Attention : retirer un membre ne supprime pas son historique déjà encodé.</div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;" id="membersEditList">`;
+  MEMBERS.forEach((m,i)=>{
+    body+=`<div style="display:flex;align-items:center;gap:10px;">
+      <div class="avatar ${avClass(i)}" style="width:28px;height:28px;font-size:10px;">${initials(m)}</div>
+      <div style="flex:1;font-size:13px;font-weight:500;">${m}</div>
+      <button class="btn btn-icon btn-sm" style="color:var(--red);" onclick="removeMember('${m.replace(/'/g,"\\'")}')" title="Retirer">🗑</button>
+    </div>`;
+  });
+  body+=`</div>
+  <div class="form-group" style="display:flex;gap:8px;">
+    <input type="text" class="form-input" id="newMemberName" placeholder="Nom du nouveau membre" onkeydown="if(event.key==='Enter') addMember()">
+    <button class="btn btn-primary btn-sm" onclick="addMember()">+ Ajouter</button>
+  </div>`;
+  document.getElementById("modalBody").innerHTML=body;
+  document.getElementById("modalFooter").innerHTML=`<button class="btn" onclick="closeModal()">Fermer</button>`;
+  document.getElementById("eventModal").style.display="flex";
+}
+function addMember(){
+  const input=document.getElementById("newMemberName");
+  const name=(input?.value||"").trim();
+  if(!name){ return; }
+  if(MEMBERS.includes(name)){ showToast("Ce membre existe déjà"); return; }
+  MEMBERS.push(name);
+  saveMembersList();
+  if(!isFirebaseOk) renderAll();
+  showToast(`${name} ajouté(e) à l'équipe ✓`);
+  openMembersEditor();
+}
+function removeMember(name){
+  if(!confirm(`Retirer ${name} de l'équipe ? Son historique encodé restera visible mais elle n'apparaîtra plus dans les listes.`)) return;
+  MEMBERS = MEMBERS.filter(m=>m!==name);
+  saveMembersList();
+  if(selectedMember===name) selectedMember=null;
+  if(!isFirebaseOk) renderAll();
+  showToast(`${name} retiré(e) de l'équipe`);
+  openMembersEditor();
+}
+
 function saveAllBalances(){
   MEMBERS.forEach((m,i)=>{
     const raw=(document.getElementById("bal_"+i)?.value||"0").replace(",",".");
