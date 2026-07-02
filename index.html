@@ -267,7 +267,7 @@ if(FIREBASE_IS_CONFIGURED){
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.database();
     db.ref("events").on("value",snap=>{ events=snap.val()||{}; renderAll(); });
-    db.ref("leaveBalances").on("value",snap=>{ leaveBalances=snap.val()||{}; renderAll(); });
+    db.ref("leaveBalances").on("value",snap=>{ leaveBalances=snap.val()||{}; renderAll(); }); // keys are sanitized member names
     db.ref("members").on("value",snap=>{ const v=snap.val(); if(v&&Array.isArray(v)&&v.length) MEMBERS=v; renderAll(); });
     isFirebaseOk=true;
   } catch(e){ isFirebaseOk=false; loadLocal(); }
@@ -300,9 +300,10 @@ function deleteEventById(id){
   else{ delete events[id]; saveLocal(); renderAll(); }
 }
 function saveBalance(member,data){
-  const key=isFirebaseOk?btoa(encodeURIComponent(member)):member;
-  if(isFirebaseOk) db.ref("leaveBalances/"+key).set(data);
-  else{ leaveBalances[member]=data; saveLocal(); renderAll(); }
+  // Use a safe key: remove special chars for Firebase path
+  const key=member.replace(/[.#$/[\]]/g,"_");
+  if(isFirebaseOk) db.ref("leaveBalances/"+key).set({...data, member});
+  else{ leaveBalances[key]=data; saveLocal(); renderAll(); }
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
@@ -311,7 +312,11 @@ function avClass(i){ return "av-"+(i%8); }
 function fmtDate(d){ if(!d) return ""; const[y,m,day]=d.split("-"); return `${day}/${m}/${y}`; }
 function fmtH(h){ if(h==null) return ""; const n=parseFloat(h); if(isNaN(n)) return "0h"; const rounded=Math.round(n*100)/100; const str=rounded%1===0?rounded.toFixed(0):rounded.toFixed(2).replace(/0$/,"").replace(/\.$/,""); return str.replace(".",",")+"h"; }
 function datesBetween(s,e){ const a=[]; let c=new Date(s); const l=new Date(e); while(c<=l){ a.push(c.toISOString().slice(0,10)); c.setDate(c.getDate()+1); } return a; }
-function getBalance(m){ return leaveBalances[m]||{total:0}; }
+function getBalance(m){
+  const key=m.replace(/[.#$/[\]]/g,"_");
+  // Try key first, then raw name for backward compat
+  return leaveBalances[key]||leaveBalances[m]||{total:0};
+}
 function showToast(msg,dur=2500){ const t=document.getElementById("toast"); t.textContent=msg; t.style.display="block"; setTimeout(()=>t.style.display="none",dur); }
 
 // ── NOTIFICATION EMAIL (Web3Forms) ──────────────────────────────────────
