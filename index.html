@@ -236,6 +236,12 @@ const APP_PASSWORD = "accueil2026";
 const WEB3FORMS_KEY = "c5c8ebae-e233-4e85-8a25-34f856a526ec";
 const NOTIFY_EMAIL = "michel.noel@csambleve.be";
 const DEFAULT_MEMBERS = ["Michel","Audrey","Florence","Jean-Michel","Jennifer","Jessica","Mélissa","Valentine","Doris"];
+// Horaires hebdomadaires (heures par jour : [Lun, Mar, Mer, Jeu, Ven])
+const MEMBER_SCHEDULES = {
+  "Mélissa":    [9.65, 7.25, 6.50, 7.00, 7.60],
+  "Jean-Michel":[0,    7,    3,    6,    3   ]
+};
+
 const MEMBER_EMAILS = {
   "Michel":     "michel.noel@csambleve.be",
   "Audrey":     "audray.macaut@csambleve.be",
@@ -312,6 +318,19 @@ function avClass(i){ return "av-"+(i%8); }
 function fmtDate(d){ if(!d) return ""; const[y,m,day]=d.split("-"); return `${day}/${m}/${y}`; }
 function fmtH(h){ if(h==null) return ""; const n=parseFloat(h); if(isNaN(n)) return "0h"; const rounded=Math.round(n*100)/100; const str=rounded%1===0?rounded.toFixed(0):rounded.toFixed(2).replace(/0$/,"").replace(/\.$/,""); return str.replace(".",",")+"h"; }
 function datesBetween(s,e){ const a=[]; let c=new Date(s); const l=new Date(e); while(c<=l){ a.push(c.toISOString().slice(0,10)); c.setDate(c.getDate()+1); } return a; }
+function calcScheduleHours(member, dateStart, dateEnd){
+  const schedule = MEMBER_SCHEDULES[member];
+  if(!schedule) return null; // no schedule defined
+  let total = 0;
+  let cur = new Date(dateStart);
+  const last = new Date(dateEnd||dateStart);
+  while(cur <= last){
+    const dow = cur.getDay(); // 0=Sun,1=Mon,...,5=Fri,6=Sat
+    if(dow >= 1 && dow <= 5) total += schedule[dow-1]; // Mon=0...Fri=4
+    cur.setDate(cur.getDate()+1);
+  }
+  return Math.round(total*100)/100;
+}
 function getBalance(m){
   const key=m.replace(/[.#$/[\]]/g,"_");
   // Try key first, then raw name for backward compat
@@ -604,7 +623,7 @@ function openAddEvent(prefillDate){
   document.getElementById("modalBody").innerHTML=`
     <div class="form-group">
       <label class="form-label">Membre</label>
-      <select class="form-select" id="evMember">${MEMBERS.map(m=>`<option value="${m}"${selectedMember===m?" selected":""}>${m}</option>`).join("")}</select>
+      <select class="form-select" id="evMember" onchange="onTypeChange();autoFillHours()">${MEMBERS.map(m=>`<option value="${m}"${selectedMember===m?" selected":""}>${m}</option>`).join("")}</select>
     </div>
     <div class="form-group">
       <label class="form-label">Type d'événement</label>
@@ -619,11 +638,11 @@ function openAddEvent(prefillDate){
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Date de début</label>
-          <input type="date" class="form-input" id="evDateStart" value="${today}" oninput="onTypeChange()">
+          <input type="date" class="form-input" id="evDateStart" value="${today}" oninput="onTypeChange();autoFillHours()">
         </div>
         <div class="form-group" id="dateEndGroup">
           <label class="form-label">Date de fin</label>
-          <input type="date" class="form-input" id="evDateEnd" value="${today}">
+          <input type="date" class="form-input" id="evDateEnd" value="${today}" oninput="autoFillHours()">
         </div>
       </div>
     </div>
@@ -631,6 +650,7 @@ function openAddEvent(prefillDate){
       <label class="form-label" id="hoursLabel">Nombre d'heures</label>
       <input type="text" class="form-input" id="evHours" placeholder="ex : 7,5 ou 1,25 = 1h15" inputmode="decimal">
       <div class="form-hint">0.25 = 15 min · 0.5 = 30 min · 0.75 = 45 min · 1.25 = 1h15</div>
+      <div id="scheduleHint" class="info-box" style="display:none;background:var(--green-bg);border-color:var(--green-border);color:var(--green);">✓ Heures calculées automatiquement selon l'horaire — tu peux modifier si besoin</div>
     </div>
     <div id="infoBox" class="info-box" style="display:none;"></div>
     <div class="form-group">
@@ -664,6 +684,24 @@ function onTypeChange(){
       infoBox.textContent=`Solde actuel de ${member} : ${fmtH(rem)} restantes (capital ${fmtH(bal.total||0)} — utilisées ${fmtH(used)})`;
     }
   } else if(infoBox) infoBox.style.display="none";
+}
+
+function autoFillHours(){
+  const member = document.getElementById("evMember")?.value;
+  const type = document.getElementById("evType")?.value;
+  if(type !== "conge") return; // only for leave
+  const dateStart = document.getElementById("evDateStart")?.value;
+  const dateEnd = document.getElementById("evDateEnd")?.value || dateStart;
+  if(!member || !dateStart) return;
+  const hours = calcScheduleHours(member, dateStart, dateEnd);
+  if(hours === null) return; // no schedule for this member
+  const hoursInput = document.getElementById("evHours");
+  if(hoursInput) {
+    hoursInput.value = String(hours).replace(".", ",");
+    // Show a hint that hours were auto-calculated
+    const hint = document.getElementById("scheduleHint");
+    if(hint) hint.style.display = hours > 0 ? "block" : "none";
+  }
 }
 
 function submitEvent(){
